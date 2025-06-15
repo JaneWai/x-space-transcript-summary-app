@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Download, Copy, Clock, Users, FileText, Sparkles, CheckCircle, Share2 } from 'lucide-react'
+import { Download, Copy, Clock, Users, FileText, Sparkles, CheckCircle, Share2, ExternalLink } from 'lucide-react'
 
 interface TranscriptionData {
   id: string
@@ -10,6 +10,8 @@ interface TranscriptionData {
   summary: string
   keyPoints: string[]
   timestamp: string
+  source: 'file' | 'url'
+  originalUrl?: string
 }
 
 interface TranscriptionResultProps {
@@ -35,7 +37,7 @@ const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ data }) => {
     let filename = ''
     
     if (format === 'txt') {
-      content = `X Space Transcription\n\nFile: ${data.filename}\nDuration: ${data.duration}\nParticipants: ${data.participants}\nDate: ${new Date(data.timestamp).toLocaleDateString()}\n\n--- SUMMARY ---\n${data.summary}\n\n--- KEY POINTS ---\n${data.keyPoints.map(point => `• ${point}`).join('\n')}\n\n--- FULL TRANSCRIPT ---\n${data.transcript}`
+      content = `X Space Transcription\n\nFile: ${data.filename}\nDuration: ${data.duration}\nParticipants: ${data.participants}\nDate: ${new Date(data.timestamp).toLocaleDateString()}\nSource: ${data.source === 'url' ? 'X Space URL' : 'File Upload'}\n${data.originalUrl ? `Original URL: ${data.originalUrl}\n` : ''}\n--- SUMMARY ---\n${data.summary}\n\n--- KEY POINTS ---\n${data.keyPoints.map(point => `• ${point}`).join('\n')}\n\n--- FULL TRANSCRIPT ---\n${data.transcript}`
       filename = `${data.filename.replace(/\.[^/.]+$/, '')}_transcript.txt`
     } else {
       content = JSON.stringify(data, null, 2)
@@ -61,7 +63,9 @@ const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ data }) => {
           <CheckCircle className="h-8 w-8 text-green-600" />
           <div>
             <h2 className="text-xl font-bold text-green-900">Transcription Complete!</h2>
-            <p className="text-green-700">Your X Space recording has been successfully processed</p>
+            <p className="text-green-700">
+              Your {data.source === 'url' ? 'X Space' : 'audio file'} has been successfully processed
+            </p>
           </div>
         </div>
       </div>
@@ -70,8 +74,8 @@ const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ data }) => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
           <div className="flex items-center space-x-4">
-            <div className="bg-blue-100 p-3 rounded-lg">
-              <FileText className="h-6 w-6 text-blue-600" />
+            <div className={`p-3 rounded-lg ${data.source === 'url' ? 'bg-purple-100' : 'bg-blue-100'}`}>
+              <FileText className={`h-6 w-6 ${data.source === 'url' ? 'text-purple-600' : 'text-blue-600'}`} />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900">{data.filename}</h3>
@@ -85,7 +89,27 @@ const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ data }) => {
                   <span>{data.participants} speakers</span>
                 </div>
                 <span>{new Date(data.timestamp).toLocaleDateString()}</span>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  data.source === 'url' 
+                    ? 'bg-purple-100 text-purple-800' 
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {data.source === 'url' ? 'X Space URL' : 'File Upload'}
+                </span>
               </div>
+              {data.originalUrl && (
+                <div className="mt-2">
+                  <a 
+                    href={data.originalUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-1 text-sm text-purple-600 hover:text-purple-800"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    <span>View Original X Space</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
           

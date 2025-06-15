@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { Upload, FileAudio, Mic, Download, Clock, Users, MessageSquare, Sparkles } from 'lucide-react'
-import FileUpload from './components/FileUpload'
+import InputSelector from './components/InputSelector'
 import TranscriptionResult from './components/TranscriptionResult'
 import ProcessingStatus from './components/ProcessingStatus'
+import { xSpaceService } from './services/xSpaceService'
 
 interface TranscriptionData {
   id: string
@@ -13,6 +14,8 @@ interface TranscriptionData {
   summary: string
   keyPoints: string[]
   timestamp: string
+  source: 'file' | 'url'
+  originalUrl?: string
 }
 
 function App() {
@@ -20,29 +23,55 @@ function App() {
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionData | null>(null)
   const [processingStep, setProcessingStep] = useState('')
 
-  const handleFileUpload = async (file: File) => {
+  const processAudio = async (source: 'file' | 'url', input: File | string) => {
     setIsProcessing(true)
     setTranscriptionResult(null)
     
-    // Simulate processing steps
-    const steps = [
-      'Uploading audio file...',
-      'Analyzing audio quality...',
-      'Detecting speakers...',
-      'Transcribing speech to text...',
-      'Generating AI summary...',
-      'Extracting key insights...'
-    ]
+    let steps: string[]
+    let filename: string
+    let originalUrl: string | undefined
+
+    if (source === 'file') {
+      steps = [
+        'Uploading audio file...',
+        'Analyzing audio quality...',
+        'Detecting speakers...',
+        'Transcribing speech to text...',
+        'Generating AI summary...',
+        'Extracting key insights...'
+      ]
+      filename = (input as File).name
+    } else {
+      steps = [
+        'Validating X Space URL...',
+        'Extracting space metadata...',
+        'Downloading audio stream...',
+        'Processing audio quality...',
+        'Detecting speakers...',
+        'Transcribing speech to text...',
+        'Generating AI summary...',
+        'Extracting key insights...'
+      ]
+      originalUrl = input as string
+      
+      try {
+        const metadata = await xSpaceService.extractSpaceMetadata(originalUrl)
+        filename = `${metadata.title || 'X Space'}.mp3`
+      } catch (error) {
+        filename = 'X Space Recording.mp3'
+      }
+    }
     
+    // Simulate processing steps
     for (let i = 0; i < steps.length; i++) {
       setProcessingStep(steps[i])
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await new Promise(resolve => setTimeout(resolve, source === 'url' ? 2000 : 1500))
     }
     
     // Mock transcription result
     const mockResult: TranscriptionData = {
       id: Date.now().toString(),
-      filename: file.name,
+      filename,
       duration: '45:32',
       participants: 4,
       transcript: `[00:00:12] Speaker 1: Welcome everyone to today's X Space on the future of AI and technology. I'm excited to have such an amazing panel with us today.
@@ -75,12 +104,22 @@ function App() {
         'Transparency in AI systems is essential for public understanding',
         'Responsible development is needed to ensure fair distribution of AI benefits'
       ],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      source,
+      originalUrl
     }
     
     setTranscriptionResult(mockResult)
     setIsProcessing(false)
     setProcessingStep('')
+  }
+
+  const handleFileUpload = (file: File) => {
+    processAudio('file', file)
+  }
+
+  const handleUrlSubmit = (url: string) => {
+    processAudio('url', url)
   }
 
   return (
@@ -129,7 +168,7 @@ function App() {
               Turn X Space Recordings into Insights
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-              Upload your X Space recordings and get accurate transcripts with AI-powered summaries, 
+              Upload audio files or process X Space URLs directly to get accurate transcripts with AI-powered summaries, 
               key points extraction, and speaker identification.
             </p>
             
@@ -162,9 +201,12 @@ function App() {
           </div>
         )}
 
-        {/* File Upload */}
+        {/* Input Selector */}
         {!isProcessing && !transcriptionResult && (
-          <FileUpload onFileUpload={handleFileUpload} />
+          <InputSelector 
+            onFileUpload={handleFileUpload}
+            onUrlSubmit={handleUrlSubmit}
+          />
         )}
 
         {/* Processing Status */}
