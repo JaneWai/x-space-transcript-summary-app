@@ -1,9 +1,12 @@
 import React, { useState } from 'react'
-import { Upload, FileAudio, Mic, Download, Clock, Users, MessageSquare, Sparkles } from 'lucide-react'
+import { Upload, FileAudio, Mic, Download, Clock, Users, MessageSquare, Sparkles, AlertCircle } from 'lucide-react'
 import InputSelector from './components/InputSelector'
 import TranscriptionResult from './components/TranscriptionResult'
 import ProcessingStatus from './components/ProcessingStatus'
 import { xSpaceService } from './services/xSpaceService'
+import { audioService } from './services/audioService'
+import { transcriptionService } from './services/transcriptionService'
+import { summaryService } from './services/summaryService'
 
 interface TranscriptionData {
   id: string
@@ -16,102 +19,110 @@ interface TranscriptionData {
   timestamp: string
   source: 'file' | 'url'
   originalUrl?: string
+  topics?: string[]
+  sentiment?: string
+  actionItems?: string[]
 }
 
 function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionData | null>(null)
   const [processingStep, setProcessingStep] = useState('')
+  const [error, setError] = useState('')
+
+  const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = Math.floor(seconds % 60)
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`
+  }
 
   const processAudio = async (source: 'file' | 'url', input: File | string) => {
     setIsProcessing(true)
     setTranscriptionResult(null)
+    setError('')
     
-    let steps: string[]
-    let filename: string
-    let originalUrl: string | undefined
+    try {
+      if (source === 'url') {
+        // Process X Space URL
+        setProcessingStep('Validating X Space URL...')
+        const isValid = await xSpaceService.validateSpaceUrl(input as string)
+        if (!isValid) {
+          throw new Error('Invalid or inaccessible X Space URL')
+        }
 
-    if (source === 'file') {
-      steps = [
-        'Uploading audio file...',
-        'Analyzing audio quality...',
-        'Detecting speakers...',
-        'Transcribing speech to text...',
-        'Generating AI summary...',
-        'Extracting key insights...'
-      ]
-      filename = (input as File).name
-    } else {
-      steps = [
-        'Validating X Space URL...',
-        'Extracting space metadata...',
-        'Downloading audio stream...',
-        'Processing audio quality...',
-        'Detecting speakers...',
-        'Transcribing speech to text...',
-        'Generating AI summary...',
-        'Extracting key insights...'
-      ]
-      originalUrl = input as string
-      
-      try {
-        const metadata = await xSpaceService.extractSpaceMetadata(originalUrl)
-        filename = `${metadata.title || 'X Space'}.mp3`
-      } catch (error) {
-        filename = 'X Space Recording.mp3'
+        setProcessingStep('Extracting space metadata...')
+        const metadata = await xSpaceService.extractSpaceMetadata(input as string)
+
+        setProcessingStep('Downloading audio stream...')
+        // This will handle the full X Space processing
+        const result = await xSpaceService.processXSpace(input as string)
+
+        setProcessingStep('Processing complete!')
+        
+        const transcriptionData: TranscriptionData = {
+          id: Date.now().toString(),
+          filename: `${result.metadata.title}.mp3`,
+          duration: formatDuration(result.transcription.segments.reduce((max, seg) => Math.max(max, seg.end), 0)),
+          participants: result.transcription.speakers.length,
+          transcript: transcriptionService.formatTranscriptWithTimestamps(result.transcription.segments),
+          summary: result.summary.summary,
+          keyPoints: result.summary.keyPoints,
+          timestamp: new Date().toISOString(),
+          source,
+          originalUrl: input as string,
+          topics: result.summary.topics,
+          sentiment: result.summary.sentiment,
+          actionItems: result.summary.actionItems
+        }
+
+        setTranscriptionResult(transcriptionData)
+      } else {
+        // Process uploaded file
+        const file = input as File
+        
+        setProcessingStep('Processing audio file...')
+        const audioResult = await audioService.processAudioFile(file)
+        
+        setProcessingStep('Converting audio format...')
+        const processedAudio = await audioService.convertToWav(audioResult.audioBlob)
+        
+        setProcessingStep('Transcribing speech to text...')
+        const transcription = await transcriptionService.transcribeAudio(processedAudio, file.name)
+        
+        setProcessingStep('Generating AI summary...')
+        const summary = await summaryService.generateSummary(transcription.text, transcription.speakers)
+        
+        setProcessingStep('Processing complete!')
+        
+        const transcriptionData: TranscriptionData = {
+          id: Date.now().toString(),
+          filename: file.name,
+          duration: formatDuration(audioResult.duration),
+          participants: transcription.speakers.length,
+          transcript: transcriptionService.formatTranscriptWithTimestamps(transcription.segments),
+          summary: summary.summary,
+          keyPoints: summary.keyPoints,
+          timestamp: new Date().toISOString(),
+          source,
+          topics: summary.topics,
+          sentiment: summary.sentiment,
+          actionItems: summary.actionItems
+        }
+
+        setTranscriptionResult(transcriptionData)
       }
+    } catch (error) {
+      console.error('Processing failed:', error)
+      setError(error instanceof Error ? error.message : 'Processing failed. Please try again.')
+    } finally {
+      setIsProcessing(false)
+      setProcessingStep('')
     }
-    
-    // Simulate processing steps
-    for (let i = 0; i < steps.length; i++) {
-      setProcessingStep(steps[i])
-      await new Promise(resolve => setTimeout(resolve, source === 'url' ? 2000 : 1500))
-    }
-    
-    // Mock transcription result
-    const mockResult: TranscriptionData = {
-      id: Date.now().toString(),
-      filename,
-      duration: '45:32',
-      participants: 4,
-      transcript: `[00:00:12] Speaker 1: Welcome everyone to today's X Space on the future of AI and technology. I'm excited to have such an amazing panel with us today.
-
-[00:00:28] Speaker 2: Thanks for having me! I'm really looking forward to discussing how AI is transforming various industries and what we can expect in the coming years.
-
-[00:00:45] Speaker 3: Absolutely. The pace of innovation has been incredible. Just in the past year, we've seen breakthrough after breakthrough in machine learning and natural language processing.
-
-[00:01:02] Speaker 1: Let's start with the elephant in the room - generative AI. How do you see this technology reshaping creative industries?
-
-[00:01:15] Speaker 2: It's fascinating because we're seeing AI become a collaborative tool rather than a replacement. Artists, writers, and designers are using AI to enhance their creativity, not replace it.
-
-[00:01:32] Speaker 4: I think that's a crucial distinction. The most successful implementations I've seen treat AI as an augmentation tool. It's about human-AI collaboration, not human replacement.
-
-[00:01:48] Speaker 3: Exactly. And we're just scratching the surface. The next wave of AI applications will be even more integrated into our daily workflows, making complex tasks more accessible to everyone.
-
-[00:02:05] Speaker 1: That's a great point. What about the challenges? We can't ignore the concerns around job displacement and ethical considerations.
-
-[00:02:18] Speaker 2: Those are valid concerns that we need to address proactively. It's about responsible development and ensuring that the benefits of AI are distributed fairly across society.
-
-[00:02:35] Speaker 4: Education and reskilling will be crucial. We need to prepare the workforce for an AI-augmented future, not just hope for the best.
-
-[00:02:48] Speaker 3: And transparency in AI systems is essential. People need to understand how these tools work and what their limitations are.`,
-      summary: `This X Space featured a panel discussion on the future of AI and technology, focusing on generative AI's impact on creative industries. The speakers emphasized that AI should be viewed as a collaborative tool that augments human creativity rather than replacing it. Key themes included the importance of human-AI collaboration, the need for responsible AI development, and the critical role of education and transparency in preparing society for an AI-augmented future. The discussion highlighted both the tremendous opportunities and the legitimate concerns around job displacement and ethical considerations that need to be addressed proactively.`,
-      keyPoints: [
-        'AI is becoming a collaborative tool that enhances rather than replaces human creativity',
-        'Successful AI implementations focus on human-AI collaboration, not replacement',
-        'The next wave of AI will be more integrated into daily workflows',
-        'Education and reskilling are crucial for preparing the workforce',
-        'Transparency in AI systems is essential for public understanding',
-        'Responsible development is needed to ensure fair distribution of AI benefits'
-      ],
-      timestamp: new Date().toISOString(),
-      source,
-      originalUrl
-    }
-    
-    setTranscriptionResult(mockResult)
-    setIsProcessing(false)
-    setProcessingStep('')
   }
 
   const handleFileUpload = (file: File) => {
@@ -157,7 +168,7 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {!isProcessing && !transcriptionResult && (
+        {!isProcessing && !transcriptionResult && !error && (
           <div className="text-center mb-12">
             <img 
               src="https://images.unsplash.com/photo-1590650153855-d9e808231d41?w=800&h=400&fit=crop&crop=center"
@@ -198,11 +209,57 @@ function App() {
                 <p className="text-gray-600 text-sm">Download transcripts in multiple formats and share insights with your team</p>
               </div>
             </div>
+
+            {/* API Configuration Notice */}
+            <div className="max-w-4xl mx-auto mb-8">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
+                <div className="flex items-start space-x-3">
+                  <AlertCircle className="h-6 w-6 text-amber-600 mt-0.5" />
+                  <div className="text-left">
+                    <h4 className="font-semibold text-amber-900 mb-2">API Configuration Required</h4>
+                    <p className="text-amber-800 text-sm mb-3">
+                      To use real X Space transcription, you'll need to configure your API keys:
+                    </p>
+                    <ul className="text-amber-800 text-sm space-y-1 list-disc list-inside">
+                      <li><strong>OpenAI API Key:</strong> For transcription and summary generation</li>
+                      <li><strong>Twitter Bearer Token:</strong> For X Space metadata extraction</li>
+                      <li><strong>Proxy Server:</strong> To handle CORS and API requests</li>
+                    </ul>
+                    <p className="text-amber-800 text-sm mt-3">
+                      Copy <code className="bg-amber-100 px-1 rounded">.env.example</code> to <code className="bg-amber-100 px-1 rounded">.env</code> and add your API keys.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div className="max-w-2xl mx-auto mb-8">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+              <div className="flex items-center space-x-3">
+                <div className="bg-red-100 p-2 rounded-lg">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-red-900">Processing Failed</h3>
+                  <p className="text-red-700 mt-1">{error}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setError('')}
+                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
           </div>
         )}
 
         {/* Input Selector */}
-        {!isProcessing && !transcriptionResult && (
+        {!isProcessing && !transcriptionResult && !error && (
           <InputSelector 
             onFileUpload={handleFileUpload}
             onUrlSubmit={handleUrlSubmit}
